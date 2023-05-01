@@ -1,44 +1,51 @@
-name: Deploy to HTTPD
+name: Deploy to AWS EC2
 
 on:
   push:
     branches:
       - main
 
+env:
+  DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
+  DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
+  AWS_SSH_KEY: ${{ secrets.AWS_SSH_KEY }}
+  AWS_INSTANCE_IP: ${{ secrets.AWS_INSTANCE_IP }}
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
 
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v2
-      
-    - name: Install Docker
-      run: |
-        sudo apt-get update
-        sudo apt-get -y install docker.io
-      
-    - name: Build Docker image
-      run: |
-        docker build -t my-web-app .
-      
-    - name: Tag Docker image
-      run: |
-        docker tag my-web-app:latest my-docker-username/my-web-app:latest
-        
-    - name: Push Docker image to registry
-      run: |
-        docker login -u my-docker-username -p ${{ secrets.DOCKER_PASSWORD }}
-        docker push my-docker-username/my-web-app:latest
-      
-    - name: Deploy Docker image to HTTPD
-      uses: appleboy/ssh-action@master
-      with:
-        host: ${{ secrets.HOST }}
-        username: ${{ secrets.USERNAME }}
-        password: ${{ secrets.PASSWORD }}
-        script: |
-          sudo docker stop my-web-app || true
-          sudo docker rm my-web-app || true
-          sudo docker pull my-docker-username/my-web-app:latest
-          sudo docker run -d --name my-web-app -p 80:80 my-docker-username/my-web-app:latest
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Install Docker
+        run: |
+          sudo apt-get update
+          sudo apt-get -y install docker.io
+
+      - name: Build Docker image
+        run: |
+          sudo docker build -t my-web-app .
+          sudo docker tag my-web-app $DOCKER_USERNAME/my-web-app:latest
+
+      - name: Login to Docker Hub
+        run: |
+          echo "$DOCKER_PASSWORD" | sudo docker login -u "$DOCKER_USERNAME" --password-stdin
+
+      - name: Push Docker image to Docker Hub
+        run: |
+          sudo docker push $DOCKER_USERNAME/my-web-app:latest
+
+      - name: Connect to AWS instance
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ env.AWS_INSTANCE_IP }}
+          username: ubuntu
+          key: ${{ env.AWS_SSH_KEY }}
+          port: 22
+          script: |
+            sudo docker pull $DOCKER_USERNAME/my-web-app:latest
+            sudo docker stop my-web-app || true
+            sudo docker rm my-web-app || true
+            sudo docker run -d --name my-web-app -p 80:80 $DOCKER_USERNAME/my-web-app:latest
